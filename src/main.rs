@@ -4,8 +4,6 @@ use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use crate::typedefs::{TypeDef, TypeDefInfo};
 use serde::Serialize;
 use std::ffi::c_char;
-use std::fs::File;
-use std::io::BufWriter;
 
 mod classes;
 mod enums;
@@ -16,15 +14,24 @@ fn main() {
     assert_eq!(size_of::<usize>(), 8, "Only works on 64 bit");
     assert_eq!(size_of::<TypeInfoGenerated>(), 88);
 
-    let addresses: Vec<usize> = vec![0x146310F50, 0x14633FD00];
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <pid>", args[0]);
+        return;
+    }
 
-    let reader = ProcessMemoryReader::new(6068).expect("Could not create process memory reader");
+    let pid = args[1].parse::<u32>().expect("PID must be an integer");
+    let reader = ProcessMemoryReader::new(pid).expect("Could not create process memory reader");
+
+    let addresses: Vec<usize> = vec![0x146310F50, 0x14633FD00];
     let type_infos: Vec<TypeInfo> = addresses
         .into_iter()
         .map(|address| read_type_info(&reader, address).expect("Could not read type info"))
         .collect();
 
-    let writer = BufWriter::new(File::create("idlib.json").expect("Could not create idlib.json"));
+    let writer = std::io::BufWriter::new(
+        std::fs::File::create("idlib.json").expect("Could not create idlib.json"),
+    );
     serde_json::to_writer_pretty(writer, &type_infos).expect("Error serializing type_infos.");
 }
 
