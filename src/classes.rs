@@ -28,7 +28,7 @@ pub(crate) struct ClassVariable {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ClassTypeInfo {
     name: *const c_char,
     super_type: *const c_char,
@@ -45,7 +45,7 @@ pub(crate) struct ClassTypeInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ClassVariableInfo {
     r#type: *const c_char,
     ops: *const c_char,
@@ -63,7 +63,7 @@ pub(crate) struct ClassVariableInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ClassMetaDataInfo {
     meta_data: *const c_char,
 }

@@ -56,7 +56,7 @@ struct TypeInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct TypeInfoGenerated {
     project_name: *const c_char,
     enums: *const EnumTypeInfo,

@@ -60,13 +60,13 @@ impl ProcessMemoryReader {
         Ok(buffer)
     }
 
-    pub fn read_struct<T>(&self, address: usize) -> Result<T, ProcessMemoryError> {
+    pub fn read_struct<T: Copy>(&self, address: usize) -> Result<T, ProcessMemoryError> {
         let bytes = self.read_bytes(address, size_of::<T>())?;
         let struct_data = unsafe { std::ptr::read(bytes.as_ptr() as *const T) };
         Ok(struct_data)
     }
 
-    pub fn read_structs<T>(
+    pub fn read_structs<T: Copy>(
         &self,
         address: usize,
         count: usize,

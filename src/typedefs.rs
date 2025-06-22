@@ -12,7 +12,7 @@ pub(crate) struct TypeDef {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct TypeDefInfo {
     name: *const c_char,
     r#type: *const c_char,

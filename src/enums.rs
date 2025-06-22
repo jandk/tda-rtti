@@ -18,7 +18,7 @@ pub(crate) struct EnumValue {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct EnumTypeInfo {
     name: *const c_char,
     flags: u64,
@@ -32,14 +32,14 @@ pub(crate) struct EnumTypeInfo {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct EnumValueInfo {
     name: *const c_char,
     value: u64,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 enum EnumType {
     EnumS8 = 0,
     EnumU8 = 1,
