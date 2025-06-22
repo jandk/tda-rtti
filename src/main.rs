@@ -13,6 +13,7 @@ mod reader;
 mod typedefs;
 
 fn main() {
+    assert_eq!(size_of::<usize>(), 8, "Only works on 64 bit");
     assert_eq!(size_of::<TypeInfoGenerated>(), 88);
 
     let addresses: Vec<usize> = vec![0x146310F50, 0x14633FD00];
