@@ -1,6 +1,6 @@
 use crate::classes::{Class, ClassTypeInfo, read_classes};
 use crate::enums::{Enum, EnumTypeInfo, read_enums};
-use crate::reader::ProcessMemoryReader;
+use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use crate::typedefs::{TypeDef, TypeDefInfo};
 use serde::Serialize;
 use std::ffi::c_char;
@@ -12,30 +12,29 @@ mod enums;
 mod reader;
 mod typedefs;
 
-fn main() -> windows::core::Result<()> {
+fn main() {
     assert_eq!(size_of::<TypeInfoGenerated>(), 88);
 
     let addresses: Vec<usize> = vec![0x146310F50, 0x14633FD00];
 
-    let reader = ProcessMemoryReader::new(6068)?;
+    let reader = ProcessMemoryReader::new(6068).expect("Could not create process memory reader");
     let type_infos: Vec<TypeInfo> = addresses
         .into_iter()
-        .map(|address| read_type_info(&reader, address).unwrap())
+        .map(|address| read_type_info(&reader, address).expect("Could not read type info"))
         .collect();
 
-    let writer = BufWriter::new(File::create("idlib.json")?);
+    let writer = BufWriter::new(File::create("idlib.json").expect("Could not create idlib.json"));
     serde_json::to_writer_pretty(writer, &type_infos).expect("Error serializing type_infos.");
-
-    Ok(())
 }
 
-fn read_type_info(reader: &ProcessMemoryReader, address: usize) -> windows::core::Result<TypeInfo> {
+fn read_type_info(
+    reader: &ProcessMemoryReader,
+    address: usize,
+) -> Result<TypeInfo, ProcessMemoryError> {
     let type_info_generated = reader.read_struct::<TypeInfoGenerated>(address)?;
     println!("{:#?}", type_info_generated);
 
-    let project_name = reader
-        .read_cstring(type_info_generated.project_name as usize)?
-        .unwrap();
+    let project_name = reader.read_cstring(type_info_generated.project_name as usize)?;
     let classes = read_classes(reader, &type_info_generated)?;
     let enums = read_enums(reader, &type_info_generated)?;
     // let typedefs = read_typedefs(reader, &type_info_generated)?;

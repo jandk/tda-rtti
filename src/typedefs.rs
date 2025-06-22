@@ -1,5 +1,5 @@
 use crate::TypeInfoGenerated;
-use crate::reader::ProcessMemoryReader;
+use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use serde::Serialize;
 use std::ffi::c_char;
 
@@ -23,7 +23,7 @@ pub(crate) struct TypeDefInfo {
 pub(crate) fn read_typedefs(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
-) -> windows::core::Result<Vec<TypeDef>> {
+) -> Result<Vec<TypeDef>, ProcessMemoryError> {
     assert_eq!(size_of::<TypeDefInfo>(), 32);
 
     let infos = reader.read_structs::<TypeDefInfo>(
@@ -33,18 +33,18 @@ pub(crate) fn read_typedefs(
 
     Ok(infos
         .into_iter()
-        .map(|info| read_typedef(reader, &info).unwrap())
+        .map(|info| read_typedef(reader, &info).expect("Could not read typedef"))
         .collect())
 }
 
 fn read_typedef(
     reader: &ProcessMemoryReader,
     info: &TypeDefInfo,
-) -> windows::core::Result<TypeDef> {
+) -> Result<TypeDef, ProcessMemoryError> {
     Ok(TypeDef {
-        name: reader.read_cstring(info.name as usize)?.unwrap(),
-        r#type: reader.read_cstring(info.r#type as usize)?.unwrap(),
-        ops: reader.read_cstring(info.ops as usize)?,
+        name: reader.read_cstring(info.name as usize)?,
+        r#type: reader.read_cstring(info.r#type as usize)?,
+        ops: reader.read_cstring(info.ops as usize).ok(),
         size: info.size,
     })
 }

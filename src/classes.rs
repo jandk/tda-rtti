@@ -1,5 +1,5 @@
 use crate::TypeInfoGenerated;
-use crate::reader::ProcessMemoryReader;
+use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use serde::Serialize;
 use std::ffi::c_char;
 
@@ -71,7 +71,7 @@ pub(crate) struct ClassMetaDataInfo {
 pub(crate) fn read_classes(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
-) -> windows::core::Result<Vec<Class>> {
+) -> Result<Vec<Class>, ProcessMemoryError> {
     assert_eq!(size_of::<ClassTypeInfo>(), 88);
     assert_eq!(size_of::<ClassVariableInfo>(), 88);
 
@@ -89,16 +89,12 @@ pub(crate) fn read_classes(
 fn read_class(
     reader: &ProcessMemoryReader,
     class_type_info: &ClassTypeInfo,
-) -> windows::core::Result<Class> {
+) -> Result<Class, ProcessMemoryError> {
     let meta_data: Option<String> = if !class_type_info.meta_data.is_null() {
         let meta_data_info =
             reader.read_struct::<ClassMetaDataInfo>(class_type_info.meta_data as usize)?;
         if !meta_data_info.meta_data.is_null() {
-            Some(
-                reader
-                    .read_cstring(meta_data_info.meta_data as usize)?
-                    .expect("Could not read meta_data"),
-            )
+            Some(reader.read_cstring(meta_data_info.meta_data as usize)?)
         } else {
             None
         }
@@ -119,8 +115,10 @@ fn read_class(
     };
 
     Ok(Class {
-        name: reader.read_cstring(class_type_info.name as usize)?.unwrap(),
-        super_type: reader.read_cstring(class_type_info.super_type as usize)?,
+        name: reader.read_cstring(class_type_info.name as usize)?,
+        super_type: reader
+            .read_cstring(class_type_info.super_type as usize)
+            .ok(),
         hash: class_type_info.name_hash,
         size: class_type_info.size,
         template_parms,
@@ -133,7 +131,7 @@ fn read_class(
 fn read_class_template_parms(
     reader: &ProcessMemoryReader,
     class_type_info: &ClassTypeInfo,
-) -> windows::core::Result<Vec<ClassVariable>> {
+) -> Result<Vec<ClassVariable>, ProcessMemoryError> {
     let mut result = Vec::new();
     let mut i = 0;
     loop {
@@ -154,7 +152,7 @@ fn read_class_template_parms(
 fn read_class_variables(
     reader: &ProcessMemoryReader,
     class_type_info: &ClassTypeInfo,
-) -> windows::core::Result<Vec<ClassVariable>> {
+) -> Result<Vec<ClassVariable>, ProcessMemoryError> {
     let mut result = Vec::new();
     let mut i = 0;
     loop {
@@ -179,15 +177,15 @@ fn read_class_variable(
     reader: &ProcessMemoryReader,
     info: &ClassVariableInfo,
     hash: Option<u64>,
-) -> windows::core::Result<ClassVariable> {
+) -> Result<ClassVariable, ProcessMemoryError> {
     Ok(ClassVariable {
-        r#type: reader.read_cstring(info.r#type as usize)?.unwrap(),
-        name: reader.read_cstring(info.name as usize)?.unwrap(),
-        ops: reader.read_cstring(info.ops as usize)?,
+        r#type: reader.read_cstring(info.r#type as usize)?,
+        name: reader.read_cstring(info.name as usize)?,
+        ops: reader.read_cstring(info.ops as usize).ok(),
         offset: info.offset,
         size: info.size,
         flags: info.flags,
-        comment: reader.read_cstring(info.comment as usize)?,
+        comment: reader.read_cstring(info.comment as usize).ok(),
         hash,
     })
 }

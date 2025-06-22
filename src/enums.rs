@@ -1,5 +1,5 @@
 use crate::TypeInfoGenerated;
-use crate::reader::ProcessMemoryReader;
+use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use serde::Serialize;
 use std::ffi::c_char;
 
@@ -54,7 +54,7 @@ enum EnumType {
 pub(crate) fn read_enums(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
-) -> windows::core::Result<Vec<Enum>> {
+) -> Result<Vec<Enum>, ProcessMemoryError> {
     assert_eq!(size_of::<EnumTypeInfo>(), 64);
     assert_eq!(size_of::<EnumValueInfo>(), 16);
 
@@ -65,16 +65,16 @@ pub(crate) fn read_enums(
 
     Ok(enum_type_infos
         .into_iter()
-        .map(|info| read_enum(reader, &info).unwrap())
+        .map(|info| read_enum(reader, &info).expect("Could not read enum"))
         .collect())
 }
 
 fn read_enum(
     reader: &ProcessMemoryReader,
     enum_type_info: &EnumTypeInfo,
-) -> windows::core::Result<Enum> {
+) -> Result<Enum, ProcessMemoryError> {
     Ok(Enum {
-        name: reader.read_cstring(enum_type_info.name as usize)?.unwrap(),
+        name: reader.read_cstring(enum_type_info.name as usize)?,
         hash: enum_type_info.name_hash,
         values: read_enum_values(reader, enum_type_info)?,
     })
@@ -83,7 +83,7 @@ fn read_enum(
 fn read_enum_values(
     reader: &ProcessMemoryReader,
     enum_type_info: &EnumTypeInfo,
-) -> windows::core::Result<Vec<EnumValue>> {
+) -> Result<Vec<EnumValue>, ProcessMemoryError> {
     let values = reader.read_structs::<EnumValueInfo>(
         enum_type_info.values as usize,
         enum_type_info.value_index_length as usize,
@@ -104,9 +104,9 @@ fn read_enum_value(
     reader: &ProcessMemoryReader,
     enum_value_info: &EnumValueInfo,
     enum_value_hash: u64,
-) -> windows::core::Result<EnumValue> {
+) -> Result<EnumValue, ProcessMemoryError> {
     Ok(EnumValue {
-        name: reader.read_cstring(enum_value_info.name as usize)?.unwrap(),
+        name: reader.read_cstring(enum_value_info.name as usize)?,
         value: enum_value_info.value,
         hash: enum_value_hash,
     })
