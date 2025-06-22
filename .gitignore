@@ -1,0 +1,10 @@
+# Cargo
+target/
+Cargo.lock
+
+# IntelliJ
+.idea/
+*.iml
+
+# Custom
+idlib.json*

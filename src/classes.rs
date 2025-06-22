@@ -1,0 +1,193 @@
+use crate::TypeInfoGenerated;
+use crate::reader::ProcessMemoryReader;
+use serde::Serialize;
+use std::ffi::c_char;
+
+#[derive(Serialize)]
+pub(crate) struct Class {
+    name: String,
+    super_type: Option<String>,
+    hash: u32,
+    size: u32,
+    template_parms: Vec<ClassVariable>,
+    variables: Vec<ClassVariable>,
+    class_checksum: u64,
+    meta_data: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ClassVariable {
+    r#type: String,
+    name: String,
+    ops: Option<String>,
+    offset: u32,
+    size: u32,
+    flags: u64,
+    comment: Option<String>,
+    hash: Option<u64>,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub(crate) struct ClassTypeInfo {
+    name: *const c_char,
+    super_type: *const c_char,
+    super_type_type_info_tools_index: u32,
+    name_hash: u32,
+    size: u32,
+    template_parms: *const ClassVariableInfo,
+    variables: *const ClassVariableInfo,
+    variable_name_hashes: *const u64,
+    class_checksum: u64,
+    create_instance: usize,
+    placement_create_instance: usize,
+    meta_data: *const ClassMetaDataInfo,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub(crate) struct ClassVariableInfo {
+    r#type: *const c_char,
+    ops: *const c_char,
+    name: *const c_char,
+    offset: u32,
+    size: u32,
+    class_type_info_tools_index: u32,
+    enum_type_info_tools_index: u32,
+    flags: u64,
+    comment: *const c_char,
+    get: usize,
+    set: usize,
+    reallocate: usize,
+    merge: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub(crate) struct ClassMetaDataInfo {
+    meta_data: *const c_char,
+}
+
+pub(crate) fn read_classes(
+    reader: &ProcessMemoryReader,
+    type_info_generated: &TypeInfoGenerated,
+) -> windows::core::Result<Vec<Class>> {
+    assert_eq!(size_of::<ClassTypeInfo>(), 88);
+    assert_eq!(size_of::<ClassVariableInfo>(), 88);
+
+    let class_type_infos = reader.read_structs::<ClassTypeInfo>(
+        type_info_generated.classes as usize,
+        type_info_generated.num_classes as usize - 1,
+    )?;
+
+    Ok(class_type_infos
+        .into_iter()
+        .map(|info| read_class(reader, &info).expect("Could not read class"))
+        .collect())
+}
+
+fn read_class(
+    reader: &ProcessMemoryReader,
+    class_type_info: &ClassTypeInfo,
+) -> windows::core::Result<Class> {
+    let meta_data: Option<String> = if !class_type_info.meta_data.is_null() {
+        let meta_data_info =
+            reader.read_struct::<ClassMetaDataInfo>(class_type_info.meta_data as usize)?;
+        if !meta_data_info.meta_data.is_null() {
+            Some(
+                reader
+                    .read_cstring(meta_data_info.meta_data as usize)?
+                    .expect("Could not read meta_data"),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let template_parms = if !class_type_info.template_parms.is_null() {
+        read_class_template_parms(reader, class_type_info)?
+    } else {
+        Vec::new()
+    };
+
+    let variables = if !class_type_info.variables.is_null() {
+        read_class_variables(reader, class_type_info)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(Class {
+        name: reader.read_cstring(class_type_info.name as usize)?.unwrap(),
+        super_type: reader.read_cstring(class_type_info.super_type as usize)?,
+        hash: class_type_info.name_hash,
+        size: class_type_info.size,
+        template_parms,
+        variables,
+        class_checksum: class_type_info.class_checksum,
+        meta_data,
+    })
+}
+
+fn read_class_template_parms(
+    reader: &ProcessMemoryReader,
+    class_type_info: &ClassTypeInfo,
+) -> windows::core::Result<Vec<ClassVariable>> {
+    let mut result = Vec::new();
+    let mut i = 0;
+    loop {
+        let variable = reader.read_struct::<ClassVariableInfo>(
+            class_type_info.template_parms as usize + i * size_of::<ClassVariableInfo>(),
+        )?;
+        if variable.r#type.is_null() {
+            break;
+        }
+
+        let variable = read_class_variable(reader, &variable, None)?;
+        result.push(variable);
+        i += 1;
+    }
+    Ok(result)
+}
+
+fn read_class_variables(
+    reader: &ProcessMemoryReader,
+    class_type_info: &ClassTypeInfo,
+) -> windows::core::Result<Vec<ClassVariable>> {
+    let mut result = Vec::new();
+    let mut i = 0;
+    loop {
+        let variable = reader.read_struct::<ClassVariableInfo>(
+            class_type_info.variables as usize + i * size_of::<ClassVariableInfo>(),
+        )?;
+        if variable.r#type.is_null() {
+            break;
+        }
+
+        let hash = reader.read_struct::<u64>(
+            class_type_info.variable_name_hashes as usize + i * size_of::<u64>(),
+        )?;
+        let variable = read_class_variable(reader, &variable, Some(hash))?;
+        result.push(variable);
+        i += 1;
+    }
+    Ok(result)
+}
+
+fn read_class_variable(
+    reader: &ProcessMemoryReader,
+    info: &ClassVariableInfo,
+    hash: Option<u64>,
+) -> windows::core::Result<ClassVariable> {
+    Ok(ClassVariable {
+        r#type: reader.read_cstring(info.r#type as usize)?.unwrap(),
+        name: reader.read_cstring(info.name as usize)?.unwrap(),
+        ops: reader.read_cstring(info.ops as usize)?,
+        offset: info.offset,
+        size: info.size,
+        flags: info.flags,
+        comment: reader.read_cstring(info.comment as usize)?,
+        hash,
+    })
+}
