@@ -85,7 +85,7 @@ impl ProcessMemoryReader {
             return Err(ProcessMemoryError::EmptyString);
         }
 
-        let bytes = self.read_bytes(address, 1024)?;
+        let bytes = self.read_bytes(address, 4096)?;
         let null_index = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
         String::from_utf8(bytes[..null_index].to_vec()).map_err(InvalidString)
     }
