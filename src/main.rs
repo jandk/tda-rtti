@@ -23,7 +23,7 @@ fn main() {
     let pid = args[1].parse::<u32>().expect("PID must be an integer");
     let reader = ProcessMemoryReader::new(pid).expect("Could not create process memory reader");
 
-    let addresses: Vec<usize> = vec![0x1463B7E90, 0x1463E6FD0];
+    let addresses: Vec<usize> = vec![0x1463EBF80, 0x14641B0C0];
     let type_infos: Vec<TypeInfo> = addresses
         .into_iter()
         .map(|address| read_type_info(&reader, address).expect("Could not read type info"))
