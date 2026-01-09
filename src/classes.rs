@@ -2,21 +2,22 @@ use crate::TypeInfoGenerated;
 use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use serde::Serialize;
 use std::ffi::c_char;
+use std::option::Option;
 
 #[derive(Serialize)]
-pub(crate) struct Class {
+pub struct Class {
     name: String,
     super_type: Option<String>,
     hash: u32,
     size: u32,
     template_parms: Vec<ClassVariable>,
     variables: Vec<ClassVariable>,
-    class_checksum: u64,
+    checksum: u64,
     meta_data: Option<String>,
 }
 
 #[derive(Serialize)]
-pub(crate) struct ClassVariable {
+pub struct ClassVariable {
     r#type: String,
     name: String,
     ops: Option<String>,
@@ -29,7 +30,7 @@ pub(crate) struct ClassVariable {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ClassTypeInfo {
+pub struct ClassTypeInfo {
     name: *const c_char,
     super_type: *const c_char,
     super_type_type_info_tools_index: u32,
@@ -46,7 +47,7 @@ pub(crate) struct ClassTypeInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ClassVariableInfo {
+pub struct ClassVariableInfo {
     r#type: *const c_char,
     ops: *const c_char,
     name: *const c_char,
@@ -64,11 +65,11 @@ pub(crate) struct ClassVariableInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ClassMetaDataInfo {
+pub struct ClassMetaDataInfo {
     meta_data: *const c_char,
 }
 
-pub(crate) fn read_classes(
+pub fn read_classes(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
 ) -> Result<Vec<Class>, ProcessMemoryError> {
@@ -90,28 +91,28 @@ fn read_class(
     reader: &ProcessMemoryReader,
     class_type_info: &ClassTypeInfo,
 ) -> Result<Class, ProcessMemoryError> {
-    let meta_data: Option<String> = if !class_type_info.meta_data.is_null() {
+    let meta_data: Option<String> = if class_type_info.meta_data.is_null() {
+        None
+    } else {
         let meta_data_info =
             reader.read_struct::<ClassMetaDataInfo>(class_type_info.meta_data as usize)?;
-        if !meta_data_info.meta_data.is_null() {
-            Some(reader.read_cstring(meta_data_info.meta_data as usize)?)
-        } else {
+        if meta_data_info.meta_data.is_null() {
             None
+        } else {
+            Some(reader.read_cstring(meta_data_info.meta_data as usize)?)
         }
-    } else {
-        None
     };
 
-    let template_parms = if !class_type_info.template_parms.is_null() {
+    let template_parms = if class_type_info.template_parms.is_null() {
+        Vec::new()
+    } else {
         read_class_template_parms(reader, class_type_info)?
-    } else {
-        Vec::new()
     };
 
-    let variables = if !class_type_info.variables.is_null() {
-        read_class_variables(reader, class_type_info)?
-    } else {
+    let variables = if class_type_info.variables.is_null() {
         Vec::new()
+    } else {
+        read_class_variables(reader, class_type_info)?
     };
 
     Ok(Class {
@@ -123,9 +124,21 @@ fn read_class(
         size: class_type_info.size,
         template_parms,
         variables,
-        class_checksum: class_type_info.class_checksum,
+        checksum: class_type_info.class_checksum,
         meta_data,
     })
+}
+
+fn ptr_or_else<T, R, F1, F2>(ptr: *const T, if_null: F1, if_not_null: F2) -> R
+where
+    F1: FnOnce() -> R,
+    F2: FnOnce(*const T) -> R,
+{
+    if ptr.is_null() {
+        if_null()
+    } else {
+        if_not_null(ptr)
+    }
 }
 
 fn read_class_template_parms(
