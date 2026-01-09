@@ -23,7 +23,7 @@ fn main() {
     let pid = args[1].parse::<u32>().expect("PID must be an integer");
     let reader = ProcessMemoryReader::new(pid).expect("Could not create process memory reader");
 
-    let addresses: Vec<usize> = vec![0x1463EBF80, 0x14641B0C0];
+    let addresses: Vec<usize> = vec![0x0001_463E_BF80, 0x0001_4641_B0C0];
     let type_infos: Vec<TypeInfo> = addresses
         .into_iter()
         .map(|address| read_type_info(&reader, address).expect("Could not read type info"))
@@ -40,7 +40,7 @@ fn read_type_info(
     address: usize,
 ) -> Result<TypeInfo, ProcessMemoryError> {
     let type_info_generated = reader.read_struct::<TypeInfoGenerated>(address)?;
-    println!("{:#?}", type_info_generated);
+    println!("{type_info_generated:#?}");
 
     let project_name = reader.read_cstring(type_info_generated.project_name as usize)?;
     let classes = read_classes(reader, &type_info_generated)?;
@@ -68,13 +68,13 @@ struct TypeInfo {
 struct TypeInfoGenerated {
     project_name: *const c_char,
     enums: *const EnumTypeInfo,
-    num_enums: i32,
+    num_enums: u32,
     classes: *const ClassTypeInfo,
-    num_classes: i32,
+    num_classes: u32,
     typedefs: *const TypeDefInfo,
-    num_typedefs: i32,
+    num_typedefs: u32,
     render_model_ctors: *const u8,
-    num_render_model_ctors: i32,
+    num_render_model_ctors: u32,
     logic_custom_event_declarations: *const u8,
-    num_logic_custom_event_declarations: i32,
+    num_logic_custom_event_declarations: u32,
 }
