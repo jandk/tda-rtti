@@ -1,16 +1,21 @@
 use crate::reader::ProcessMemoryError::{CouldNotReadProcessMemory, InvalidString, NotEnoughBytes};
+use std::ffi::{c_char, c_void};
+use std::num::TryFromIntError;
+use std::ptr;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 
+const MAX_CSTRING_LEN: usize = 4096;
+
 pub struct ProcessMemoryReader {
     process_handle: HANDLE,
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum ProcessMemoryError {
+pub enum ProcessMemoryError {
     #[error("Could not read process memory")]
     CouldNotReadProcessMemory(windows::core::Error),
     #[error("Not enough bytes read, expected {expected} but read {actual}")]
@@ -19,6 +24,10 @@ pub(crate) enum ProcessMemoryError {
     InvalidString(#[from] FromUtf8Error),
     #[error("String required but was null")]
     EmptyString,
+    #[error("Reading {count} elements of {size} bytes overflows the address space")]
+    SizeOverflow { count: usize, size: usize },
+    #[error("Count does not fit in a pointer-sized integer ({0})")]
+    CountTooLarge(#[from] TryFromIntError),
 }
 
 impl ProcessMemoryReader {
@@ -31,22 +40,22 @@ impl ProcessMemoryReader {
             )?
         };
 
-        Ok(ProcessMemoryReader { process_handle })
+        Ok(Self { process_handle })
     }
 
-    pub fn read_bytes(&self, address: usize, size: usize) -> Result<Vec<u8>, ProcessMemoryError> {
+    fn read_bytes(&self, address: usize, size: usize) -> Result<Vec<u8>, ProcessMemoryError> {
         let mut buffer = vec![0u8; size];
-        let mut bytes_read = 0;
+        let mut bytes_read = 0usize;
 
         unsafe {
             ReadProcessMemory(
                 self.process_handle,
-                address as *const _,
-                buffer.as_mut_ptr() as *mut _,
+                ptr::without_provenance(address),
+                buffer.as_mut_ptr().cast::<c_void>(),
                 size,
-                Some(&mut bytes_read),
+                Some(&raw mut bytes_read),
             )
-                .map_err(CouldNotReadProcessMemory)?;
+            .map_err(CouldNotReadProcessMemory)?;
         }
 
         if bytes_read != size {
@@ -56,38 +65,40 @@ impl ProcessMemoryReader {
             });
         }
 
-        buffer.truncate(bytes_read);
         Ok(buffer)
     }
 
-    pub fn read_struct<T: Copy>(&self, address: usize) -> Result<T, ProcessMemoryError> {
-        let bytes = self.read_bytes(address, size_of::<T>())?;
-        let struct_data = unsafe { std::ptr::read(bytes.as_ptr() as *const T) };
-        Ok(struct_data)
+    pub fn read_struct<T: Copy>(&self, address: *const T) -> Result<T, ProcessMemoryError> {
+        let bytes = self.read_bytes(address.addr(), size_of::<T>())?;
+        Ok(unsafe { bytes.as_ptr().cast::<T>().read_unaligned() })
     }
 
     pub fn read_structs<T: Copy>(
         &self,
-        address: usize,
-        count: usize,
+        address: *const T,
+        count: u32,
     ) -> Result<Vec<T>, ProcessMemoryError> {
-        let struct_size = size_of::<T>();
-        let bytes = self.read_bytes(address, struct_size * count)?;
+        let count = usize::try_from(count)?;
+        let size = size_of::<T>();
+        let total = size
+            .checked_mul(count)
+            .ok_or(ProcessMemoryError::SizeOverflow { count, size })?;
+        let bytes = self.read_bytes(address.addr(), total)?;
 
-        let results: Vec<T> = (0..count)
-            .map(|i| unsafe { std::ptr::read(bytes.as_ptr().add(i * struct_size) as *const T) })
-            .collect();
-        Ok(results)
+        Ok((0..count)
+            // Safety: the buffer holds exactly `count` values of `size` bytes each.
+            .map(|i| unsafe { bytes.as_ptr().cast::<T>().add(i).read_unaligned() })
+            .collect())
     }
 
-    pub fn read_cstring(&self, address: usize) -> Result<String, ProcessMemoryError> {
-        if address == 0 {
+    pub fn read_cstring(&self, address: *const c_char) -> Result<String, ProcessMemoryError> {
+        if address.is_null() {
             return Err(ProcessMemoryError::EmptyString);
         }
 
-        let bytes = self.read_bytes(address, 4096)?;
-        let null_index = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
-        String::from_utf8(bytes[..null_index].to_vec()).map_err(InvalidString)
+        let bytes = self.read_bytes(address.addr(), MAX_CSTRING_LEN)?;
+        let text = bytes.split(|&c| c == 0).next().unwrap_or_default();
+        String::from_utf8(text.to_vec()).map_err(InvalidString)
     }
 }
 

@@ -4,45 +4,77 @@ use crate::reader::{ProcessMemoryError, ProcessMemoryReader};
 use crate::typedefs::{TypeDef, TypeDefInfo};
 use serde::Serialize;
 use std::ffi::c_char;
+use std::num::ParseIntError;
+use std::process::ExitCode;
+use std::ptr;
+use thiserror::Error;
 
 mod classes;
 mod enums;
 mod reader;
 mod typedefs;
 
-fn main() {
-    assert_eq!(size_of::<usize>(), 8, "Only works on 64 bit");
-    assert_eq!(size_of::<TypeInfoGenerated>(), 88);
+const _: () = assert!(size_of::<usize>() == 8, "Only works on 64 bit");
+const _: () = assert!(size_of::<TypeInfoGenerated>() == 88);
 
+const OUTPUT_PATH: &str = "idlib.json";
+
+const TYPE_INFO_ADDRESSES: [usize; 2] = [0x0000_0001_4675_ABC0, 0x0000_0001_4678_D9D0];
+
+#[derive(Debug, Error)]
+enum AppError {
+    #[error("PID must be an integer ({0})")]
+    InvalidPid(#[from] ParseIntError),
+    #[error("Could not open process ({0})")]
+    OpenProcess(windows::core::Error),
+    #[error("Could not read type info ({0})")]
+    ReadTypeInfo(#[from] ProcessMemoryError),
+    #[error("Could not create {OUTPUT_PATH} ({0})")]
+    CreateOutput(#[from] std::io::Error),
+    #[error("Could not serialize type infos ({0})")]
+    Serialize(#[from] serde_json::Error),
+}
+
+fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <pid>", args[0]);
-        return;
+
+    let Some(pid) = args.get(1) else {
+        let program = args.first().map_or("tda-rtti", String::as_str);
+        eprintln!("Usage: {program} <pid>");
+        return ExitCode::FAILURE;
+    };
+
+    match run(pid) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
+        }
     }
+}
 
-    let pid = args[1].parse::<u32>().expect("PID must be an integer");
-    let reader = ProcessMemoryReader::new(pid).expect("Could not create process memory reader");
+fn run(pid: &str) -> Result<(), AppError> {
+    let reader = ProcessMemoryReader::new(pid.parse::<u32>()?).map_err(AppError::OpenProcess)?;
 
-    let addresses: Vec<usize> = vec![0x0000_0001_4675_ABC0, 0x0000_0001_4678_D9D0];
-    let type_infos: Vec<TypeInfo> = addresses
+    let type_infos = TYPE_INFO_ADDRESSES
         .into_iter()
-        .map(|address| read_type_info(&reader, address).expect("Could not read type info"))
-        .collect();
+        .map(|address| read_type_info(&reader, ptr::without_provenance(address)))
+        .collect::<Result<Vec<TypeInfo>, ProcessMemoryError>>()?;
 
-    let writer = std::io::BufWriter::new(
-        std::fs::File::create("idlib.json").expect("Could not create idlib.json"),
-    );
-    serde_json::to_writer_pretty(writer, &type_infos).expect("Error serializing type_infos.");
+    let writer = std::io::BufWriter::new(std::fs::File::create(OUTPUT_PATH)?);
+    serde_json::to_writer_pretty(writer, &type_infos)?;
+
+    Ok(())
 }
 
 fn read_type_info(
     reader: &ProcessMemoryReader,
-    address: usize,
+    address: *const TypeInfoGenerated,
 ) -> Result<TypeInfo, ProcessMemoryError> {
-    let type_info_generated = reader.read_struct::<TypeInfoGenerated>(address)?;
+    let type_info_generated = reader.read_struct(address)?;
     println!("{type_info_generated:#?}");
 
-    let project_name = reader.read_cstring(type_info_generated.project_name as usize)?;
+    let project_name = reader.read_cstring(type_info_generated.project_name)?;
     let classes = read_classes(reader, &type_info_generated)?;
     let enums = read_enums(reader, &type_info_generated)?;
     // let typedefs = read_typedefs(reader, &type_info_generated)?;

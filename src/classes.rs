@@ -69,22 +69,22 @@ pub struct ClassMetaDataInfo {
     meta_data: *const c_char,
 }
 
+const _: () = assert!(size_of::<ClassTypeInfo>() == 88);
+const _: () = assert!(size_of::<ClassVariableInfo>() == 88);
+
 pub fn read_classes(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
 ) -> Result<Vec<Class>, ProcessMemoryError> {
-    assert_eq!(size_of::<ClassTypeInfo>(), 88);
-    assert_eq!(size_of::<ClassVariableInfo>(), 88);
-
     let class_type_infos = reader.read_structs::<ClassTypeInfo>(
-        type_info_generated.classes as usize,
-        type_info_generated.num_classes as usize - 1,
+        type_info_generated.classes,
+        type_info_generated.num_classes.saturating_sub(1),
     )?;
 
-    Ok(class_type_infos
-        .into_iter()
-        .map(|info| read_class(reader, &info).expect("Could not read class"))
-        .collect())
+    class_type_infos
+        .iter()
+        .map(|info| read_class(reader, info))
+        .collect()
 }
 
 fn read_class(
@@ -94,12 +94,11 @@ fn read_class(
     let meta_data: Option<String> = if class_type_info.meta_data.is_null() {
         None
     } else {
-        let meta_data_info =
-            reader.read_struct::<ClassMetaDataInfo>(class_type_info.meta_data as usize)?;
+        let meta_data_info = reader.read_struct(class_type_info.meta_data)?;
         if meta_data_info.meta_data.is_null() {
             None
         } else {
-            Some(reader.read_cstring(meta_data_info.meta_data as usize)?)
+            Some(reader.read_cstring(meta_data_info.meta_data)?)
         }
     };
 
@@ -116,10 +115,8 @@ fn read_class(
     };
 
     Ok(Class {
-        name: reader.read_cstring(class_type_info.name as usize)?,
-        super_type: reader
-            .read_cstring(class_type_info.super_type as usize)
-            .ok(),
+        name: reader.read_cstring(class_type_info.name)?,
+        super_type: reader.read_cstring(class_type_info.super_type).ok(),
         hash: class_type_info.name_hash,
         size: class_type_info.size,
         template_parms,
@@ -146,18 +143,13 @@ fn read_class_template_parms(
     class_type_info: &ClassTypeInfo,
 ) -> Result<Vec<ClassVariable>, ProcessMemoryError> {
     let mut result = Vec::new();
-    let mut i = 0;
-    loop {
-        let variable = reader.read_struct::<ClassVariableInfo>(
-            class_type_info.template_parms as usize + i * size_of::<ClassVariableInfo>(),
-        )?;
+    for i in 0.. {
+        let variable = reader.read_struct(class_type_info.template_parms.wrapping_add(i))?;
         if variable.r#type.is_null() {
             break;
         }
 
-        let variable = read_class_variable(reader, &variable, None)?;
-        result.push(variable);
-        i += 1;
+        result.push(read_class_variable(reader, &variable, None)?);
     }
     Ok(result)
 }
@@ -167,21 +159,14 @@ fn read_class_variables(
     class_type_info: &ClassTypeInfo,
 ) -> Result<Vec<ClassVariable>, ProcessMemoryError> {
     let mut result = Vec::new();
-    let mut i = 0;
-    loop {
-        let variable = reader.read_struct::<ClassVariableInfo>(
-            class_type_info.variables as usize + i * size_of::<ClassVariableInfo>(),
-        )?;
+    for i in 0.. {
+        let variable = reader.read_struct(class_type_info.variables.wrapping_add(i))?;
         if variable.r#type.is_null() {
             break;
         }
 
-        let hash = reader.read_struct::<u64>(
-            class_type_info.variable_name_hashes as usize + i * size_of::<u64>(),
-        )?;
-        let variable = read_class_variable(reader, &variable, Some(hash))?;
-        result.push(variable);
-        i += 1;
+        let hash = reader.read_struct(class_type_info.variable_name_hashes.wrapping_add(i))?;
+        result.push(read_class_variable(reader, &variable, Some(hash))?);
     }
     Ok(result)
 }
@@ -192,13 +177,13 @@ fn read_class_variable(
     hash: Option<u64>,
 ) -> Result<ClassVariable, ProcessMemoryError> {
     Ok(ClassVariable {
-        r#type: reader.read_cstring(info.r#type as usize)?,
-        name: reader.read_cstring(info.name as usize)?,
-        ops: reader.read_cstring(info.ops as usize).ok(),
+        r#type: reader.read_cstring(info.r#type)?,
+        name: reader.read_cstring(info.name)?,
+        ops: reader.read_cstring(info.ops).ok(),
         offset: info.offset,
         size: info.size,
         flags: info.flags,
-        comment: reader.read_cstring(info.comment as usize).ok(),
+        comment: reader.read_cstring(info.comment).ok(),
         hash,
     })
 }

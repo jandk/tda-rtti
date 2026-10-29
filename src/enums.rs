@@ -4,14 +4,14 @@ use serde::Serialize;
 use std::ffi::c_char;
 
 #[derive(Serialize)]
-pub(crate) struct Enum {
+pub struct Enum {
     name: String,
     hash: u32,
     values: Vec<EnumValue>,
 }
 
 #[derive(Serialize)]
-pub(crate) struct EnumValue {
+pub struct EnumValue {
     name: String,
     value: u64,
     hash: u64,
@@ -19,7 +19,7 @@ pub(crate) struct EnumValue {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct EnumTypeInfo {
+pub struct EnumTypeInfo {
     name: *const c_char,
     flags: u64,
     enum_type: EnumType,
@@ -33,7 +33,7 @@ pub(crate) struct EnumTypeInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct EnumValueInfo {
+pub struct EnumValueInfo {
     name: *const c_char,
     value: u64,
 }
@@ -51,22 +51,22 @@ enum EnumType {
     EnumU64 = 7,
 }
 
-pub(crate) fn read_enums(
+const _: () = assert!(size_of::<EnumTypeInfo>() == 64);
+const _: () = assert!(size_of::<EnumValueInfo>() == 16);
+
+pub fn read_enums(
     reader: &ProcessMemoryReader,
     type_info_generated: &TypeInfoGenerated,
 ) -> Result<Vec<Enum>, ProcessMemoryError> {
-    assert_eq!(size_of::<EnumTypeInfo>(), 64);
-    assert_eq!(size_of::<EnumValueInfo>(), 16);
-
     let enum_type_infos = reader.read_structs::<EnumTypeInfo>(
-        type_info_generated.enums as usize,
-        type_info_generated.num_enums as usize - 1,
+        type_info_generated.enums,
+        type_info_generated.num_enums.saturating_sub(1),
     )?;
 
-    Ok(enum_type_infos
-        .into_iter()
-        .map(|info| read_enum(reader, &info).expect("Could not read enum"))
-        .collect())
+    enum_type_infos
+        .iter()
+        .map(|info| read_enum(reader, info))
+        .collect()
 }
 
 fn read_enum(
@@ -74,7 +74,7 @@ fn read_enum(
     enum_type_info: &EnumTypeInfo,
 ) -> Result<Enum, ProcessMemoryError> {
     Ok(Enum {
-        name: reader.read_cstring(enum_type_info.name as usize)?,
+        name: reader.read_cstring(enum_type_info.name)?,
         hash: enum_type_info.name_hash,
         values: read_enum_values(reader, enum_type_info)?,
     })
@@ -84,13 +84,11 @@ fn read_enum_values(
     reader: &ProcessMemoryReader,
     enum_type_info: &EnumTypeInfo,
 ) -> Result<Vec<EnumValue>, ProcessMemoryError> {
-    let values = reader.read_structs::<EnumValueInfo>(
-        enum_type_info.values as usize,
-        enum_type_info.value_index_length as usize,
-    )?;
-    let hashes = reader.read_structs::<u64>(
-        enum_type_info.value_name_hashes as usize,
-        enum_type_info.value_index_length as usize,
+    let values =
+        reader.read_structs(enum_type_info.values, enum_type_info.value_index_length)?;
+    let hashes = reader.read_structs(
+        enum_type_info.value_name_hashes,
+        enum_type_info.value_index_length,
     )?;
 
     Ok(values
@@ -106,7 +104,7 @@ fn read_enum_value(
     enum_value_hash: u64,
 ) -> Result<EnumValue, ProcessMemoryError> {
     Ok(EnumValue {
-        name: reader.read_cstring(enum_value_info.name as usize)?,
+        name: reader.read_cstring(enum_value_info.name)?,
         value: enum_value_info.value,
         hash: enum_value_hash,
     })
